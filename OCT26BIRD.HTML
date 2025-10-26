@@ -1559,7 +1559,7 @@ let rainsCompleted = 0; // Track number of completed rain events (for pond forma
         const TREE_DEGRADATION_RATE = 0.25;
         const TREE_HEALTH_THRESHOLD = 0;
         const BIRD_VISION_RADIUS = 500;
-        const BIRD_FOOD_VISION_RADIUS = 1200;
+        const BIRD_FOOD_VISION_RADIUS = 1080; // Reduced by ~10% from 1200
         const RAT_VISION_RADIUS = 80;
         const SQUIRREL_VISION_RADIUS = 70;
         const STAR_COUNT = 100;
@@ -2783,8 +2783,8 @@ document.addEventListener('visibilitychange', function() {
                 // Update all ground-based entities
                 trees.forEach(tree => {
                     tree.x *= scaleX;
-                    // Keep trees properly grounded at the new ground level
-                    tree.y = newGroundLevel;
+                    // Keep trees properly grounded at the new ground level, preserving depth offset
+                    tree.y = newGroundLevel + (tree.depthOffset || 0);
                 });
                 
                 // Update other ground-based entities
@@ -3491,8 +3491,96 @@ const sunsetType = Math.floor(simulationTime / dayNightDuration * 10) % 6; // Ch
             
 
      
-     
 
+
+        }
+
+        // Enhanced: Draw bird interaction UI (hover labels and lock-on effects)
+        function drawBirdInteractionUI() {
+            // Draw hover label
+            if (hoveredBird) {
+                const birdName = getBirdName(hoveredBird);
+                const birdType = hoveredBird.birdType.name;
+                const labelText = `${birdName} (${birdType})`;
+
+                // Position label above bird
+                const labelX = hoveredBird.x;
+                const labelY = hoveredBird.y - 40;
+
+                // Measure text for background sizing
+                ctx.font = 'bold 14px Arial';
+                const textMetrics = ctx.measureText(labelText);
+                const padding = 8;
+                const bgWidth = textMetrics.width + padding * 2;
+                const bgHeight = 20;
+
+                // Draw background with high contrast
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(labelX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight);
+
+                // Draw border for visibility
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(labelX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight);
+
+                // Draw text in high-contrast color
+                ctx.fillStyle = '#FFFFFF';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(labelText, labelX, labelY);
+
+                // Draw slight highlight circle around hovered bird
+                ctx.strokeStyle = 'rgba(255, 255, 100, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(hoveredBird.x, hoveredBird.y, 25, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Draw locked bird indicator and follow camera
+            if (lockedBird && birds.includes(lockedBird)) {
+                // Draw lock indicator
+                const labelText = `🔒 ${getBirdName(lockedBird)}`;
+                const labelX = lockedBird.x;
+                const labelY = lockedBird.y - 45;
+
+                ctx.font = 'bold 16px Arial';
+                const textMetrics = ctx.measureText(labelText);
+                const padding = 10;
+                const bgWidth = textMetrics.width + padding * 2;
+                const bgHeight = 24;
+
+                // Draw locked background (blue tint)
+                ctx.fillStyle = 'rgba(50, 100, 200, 0.9)';
+                ctx.fillRect(labelX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight);
+
+                ctx.strokeStyle = 'rgba(100, 150, 255, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(labelX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight);
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(labelText, labelX, labelY);
+
+                // Draw bright highlight around locked bird
+                ctx.strokeStyle = 'rgba(100, 150, 255, 0.8)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(lockedBird.x, lockedBird.y, 30, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Pulsing effect
+                const pulseSize = 30 + Math.sin(Date.now() / 200) * 5;
+                ctx.strokeStyle = 'rgba(100, 150, 255, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(lockedBird.x, lockedBird.y, pulseSize, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (lockedBird) {
+                // Bird was removed, clear lock
+                lockedBird = null;
+            }
         }
 
         // V26: Enhanced Nest class with deterioration system
@@ -4735,10 +4823,13 @@ function drawWorms() {
                 if (!poop.grounded) {
                     poop.y += poop.yVelocity * (deltaTime / 16);
                     poop.yVelocity += 0.05 * (deltaTime / 16);
-                    
+
                     // Check if poop has hit the ground
-                    if (poop.y >= canvas.height * GROUND_HEIGHT_RATIO) {
-                        poop.y = canvas.height * GROUND_HEIGHT_RATIO;
+                    // Enhanced: allow deeper landing in foreground (below ground surface)
+                    const groundLevel = canvas.height * GROUND_HEIGHT_RATIO;
+                    const landingDepth = poop.foregroundDepth ? (15 + Math.random() * 25) : 0; // 15-40px deeper
+                    if (poop.y >= groundLevel + landingDepth) {
+                        poop.y = groundLevel + landingDepth;
                         poop.grounded = true;
                         debugLog(`Poop landed at (${poop.x}, ${poop.y})`);
                     }
@@ -4854,8 +4945,10 @@ function drawWorms() {
                 this.age = Math.random() * (TREE_LIFESPAN * 0.5); // Stagger initial ages
 
                 // Add depth variance: foreground trees (depth < 0.3) start deeper in grass
-                // This creates 1-2 inches (20-40px) of depth perception
-                const depthOffset = this.depth < 0.3 ? (20 + Math.random() * 20) : 0;
+                // Enhanced: wider vertical spawn range - can be above, at, or below ground
+                // This creates more natural tree placement with varied heights
+                const depthOffset = this.depth < 0.3 ? (20 + Math.random() * 40) : (Math.random() * 30 - 10);
+                this.depthOffset = depthOffset; // Store for resize preservation
                 this.y = canvas.height * GROUND_HEIGHT_RATIO + depthOffset;
 
                 // Make foreground trees slightly thicker for more depth perception
@@ -5748,10 +5841,10 @@ if (timeOfDay < 1 && Math.random() < 0.001) {
                 const visionRadius = this.hunger > HUNGER_CRITICAL_THRESHOLD ?
                     BIRD_FOOD_VISION_RADIUS * 2 : BIRD_FOOD_VISION_RADIUS * 1.5;
 
-                // NEW: Check for large food piles (ground flocking behavior)
-                // Count food items in clusters
+                // Enhanced: Check for large food piles (ground flocking behavior with crowding)
+                // Count food items in clusters - tighter radius for concentrated piles
                 const foodClusters = [];
-                const clusterRadius = 80;
+                const clusterRadius = 60; // Tighter clustering for better pile detection
 
                 for (const food of foodItems) {
                     let addedToCluster = false;
@@ -5769,11 +5862,27 @@ if (timeOfDay < 1 && Math.random() < 0.001) {
                     }
                 }
 
-                // If there's a large food pile (5+ items), go to ground and flock
+                // Enhanced: Major food pile (15+ items) causes birds to interrupt and crowd together
                 for (const cluster of foodClusters) {
-                    if (cluster.count >= 5 && distance(this.x, this.y, cluster.x, cluster.y) < visionRadius * 1.5) {
-                        // Direct to ground near food cluster - deeper into grass for more realistic ground behavior
-                        const groundY = canvas.height * GROUND_HEIGHT_RATIO + 40; // Increased from +20 to +40
+                    if (cluster.count >= 15 && distance(this.x, this.y, cluster.x, cluster.y) < visionRadius * 2) {
+                        // MAJOR FOOD EVENT - birds interrupt current behaviors to join crowd
+                        const groundY = canvas.height * GROUND_HEIGHT_RATIO + 40;
+                        this.path = [
+                            { x: this.x, y: this.y },
+                            { x: cluster.x + (Math.random() - 0.5) * 50, y: groundY }
+                        ];
+                        this.pathIndex = 0;
+                        this.intendToHop = true;
+                        this.hopData = null;
+                        // Interrupt current behavior and transition to PECKING for crowding effect
+                        this.state = BIRD_STATES.FLYING; // Fly there first
+                        this.stateTimer = 0;
+                        debugLog(`Bird INTERRUPTING to join food crowd at (${cluster.x}, ${cluster.y}) with ${cluster.count} items!`);
+                        return;
+                    }
+                    // Normal food pile (5+ items) for regular ground flocking
+                    else if (cluster.count >= 5 && distance(this.x, this.y, cluster.x, cluster.y) < visionRadius * 1.5) {
+                        const groundY = canvas.height * GROUND_HEIGHT_RATIO + 40;
                         this.path = [
                             { x: this.x, y: this.y },
                             { x: cluster.x + (Math.random() - 0.5) * 40, y: groundY }
@@ -6662,16 +6771,20 @@ if (timeOfDay < 1 && Math.random() < 0.001) {
                 // Update poop timer - create smaller poops
                 const now = Date.now();
                 if (now - this.lastPoopTime > BIRD_POOP_DELAY && Math.random() < 0.001 * deltaTime / 16) {
+                    // Enhanced: wider and more scattered landing area, especially in foreground
+                    const horizontalSpread = 30 + Math.random() * 40; // 30-70px horizontal variance
+                    const xOffset = (Math.random() - 0.5) * horizontalSpread;
                     birdPoops.push({
-                        x: this.x,
+                        x: this.x + xOffset,
                         y: this.y,
                         size: 3 + Math.random() * 2, // Reduced from 5 + random * 3
-                        yVelocity: 1,
+                        yVelocity: 1 + Math.random() * 0.5, // Slight velocity variance
                         grounded: false,
-                        timer: 0
+                        timer: 0,
+                        foregroundDepth: Math.random() < 0.4 // 40% chance for deeper landing
                     });
                     this.lastPoopTime = now;
-                    debugLog(`Bird pooped at (${this.x}, ${this.y})`);
+                    debugLog(`Bird pooped at (${this.x + xOffset}, ${this.y})`);
                 }
                 
                 this.stateTimer += deltaTime;
@@ -11130,13 +11243,19 @@ class Crow {
                             debugLog(`Crow ate worm at (${this.target.x}, ${this.target.y})`);
                         }
                     }
-                    
-                    // Crows immediately look for more worms
-                    if (!this.findNearestWorm()) {
+
+                    // Enhanced: Crows leave 3-4 worms behind (don't eat them all)
+                    const wormsToLeave = 3 + Math.floor(Math.random() * 2); // 3-4 worms
+                    if (worms.length > wormsToLeave && !this.findNearestWorm()) {
                         this.state = 'flying';
                         this.stateTimer = 0;
+                    } else if (worms.length <= wormsToLeave) {
+                        // Stop hunting, leave remaining worms for birds
+                        this.state = 'flying';
+                        this.stateTimer = 0;
+                        debugLog(`Crow leaving ${worms.length} worms for the birds`);
                     }
-                    
+
                     this.target = null;
                 } else {
                     // Move toward target
@@ -14839,6 +14958,8 @@ function spawnOwls() {
             nextWeatherEvents = [];
 
             // FIRST EMOJI: Current weather state (now)
+            // Enhanced: Show moon at night, sun during day
+            const isNightTime = timeOfDay >= 1; // Night is when timeOfDay >= 1
             if (isRaining) {
                 nextWeatherEvents.push({
                     type: isThundering ? 'thunder' : 'rain',
@@ -14849,7 +14970,7 @@ function spawnOwls() {
             } else {
                 nextWeatherEvents.push({
                     type: 'clear',
-                    icon: '☀️',
+                    icon: isNightTime ? '🌙' : '☀️', // Moon at night, sun during day
                     time: currentTime,
                     label: 'Now'
                 });
@@ -14877,19 +14998,19 @@ function spawnOwls() {
                         label: '+1 min'
                     });
                 } else {
-                    // Rain might stop
+                    // Rain might stop - check day/night
                     nextWeatherEvents.push({
                         type: 'clear',
-                        icon: '☀️',
+                        icon: isNightTime ? '🌙' : '☀️',
                         time: oneMinuteFromNow,
                         label: '+1 min'
                     });
                 }
             } else {
-                // Clear weather continues
+                // Clear weather continues - check day/night for appropriate icon
                 nextWeatherEvents.push({
                     type: 'clear',
-                    icon: '☀️',
+                    icon: isNightTime ? '🌙' : '☀️',
                     time: oneMinuteFromNow,
                     label: '+1 min'
                 });
@@ -14917,19 +15038,19 @@ function spawnOwls() {
                         label: '+2 min'
                     });
                 } else {
-                    // Rain might stop
+                    // Rain might stop - check day/night
                     nextWeatherEvents.push({
                         type: 'clear',
-                        icon: '☀️',
+                        icon: isNightTime ? '🌙' : '☀️',
                         time: twoMinutesFromNow,
                         label: '+2 min'
                     });
                 }
             } else {
-                // Clear weather continues
+                // Clear weather continues - check day/night
                 nextWeatherEvents.push({
                     type: 'clear',
-                    icon: '☀️',
+                    icon: isNightTime ? '🌙' : '☀️',
                     time: twoMinutesFromNow,
                     label: '+2 min'
                 });
@@ -15213,7 +15334,7 @@ function spawnOwls() {
                     familyGroups.get(baseName).push(info);
                 }
 
-                // Display families
+                // Display families and individual birds
                 for (const [baseName, members] of familyGroups.entries()) {
                     if (members.length > 1) {
                         // This is a lineage
@@ -15230,6 +15351,12 @@ function spawnOwls() {
                         });
 
                         familiesHTML += `</ul></div>`;
+                    } else {
+                        // Enhanced: Show individual birds (including starting birds)
+                        const bird = members[0];
+                        familiesHTML += `<div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                            <strong>${bird.name}</strong> (${bird.birdType}) - Solo Bird
+                        </div>`;
                     }
                 }
 
@@ -15488,6 +15615,9 @@ for (let i = owls.length - 1; i >= 0; i--) {
 
     // Draw debug visuals after everything else
     drawDebugVisuals();
+
+    // ===== BIRD INTERACTION UI LAYER (top) =====
+    drawBirdInteractionUI();
 
     // ===== PERIODIC UPDATES =====
     // Do periodic spawning and checks
@@ -15812,8 +15942,13 @@ if (antHill) {
                     const targetX = canvas.width / 2 + (Math.random() - 0.5) * 200;
                     const targetY = 100 + Math.random() * 150;
                     bird.generatePath(targetX, targetY);
-                    
+
                     birds.push(bird);
+
+                    // Register bird in family system immediately
+                    getBirdName(bird);
+                    updateDiaryDisplay(); // Update diary to show starting birds
+
                     debugLog(`Initial bird ${i+1} added with path`);
                 }, delay);
                 delay += 5000 + Math.random() * 3000; // 5-8 seconds between birds
@@ -16671,7 +16806,15 @@ if (toggleWindChimeBtn) {
           // Triple click detection variables - ADD THIS CODE HERE
 let clickCount = 0;
 let lastClickTime = 0;
-const clickTimeout = 500; // ms between clicks to count as multi-click
+const clickTimeout = 500;
+
+// Mouse tracking for bird hover/click interactions
+let mouseX = 0;
+let mouseY = 0;
+let hoveredBird = null;
+let lockedBird = null;
+let cameraOffsetX = 0;
+let cameraOffsetY = 0; // ms between clicks to count as multi-click
 
 // Canvas click for food and triple-click detection
 canvas.addEventListener('click', (e) => {
@@ -16750,7 +16893,24 @@ if (gameboy) {
     }
 }
 
-
+    // Enhanced: Check if bird was clicked for lock-on
+    for (const bird of birds) {
+        const birdDist = Math.sqrt(
+            Math.pow(scaledX - bird.x, 2) +
+            Math.pow(scaledY - bird.y, 2)
+        );
+        if (birdDist < 30) { // 30px click radius
+            // Toggle lock on this bird
+            if (lockedBird === bird) {
+                lockedBird = null;
+                debugLog(`Unlocked from bird`);
+            } else {
+                lockedBird = bird;
+                debugLog(`Locked onto bird: ${getBirdName(bird)}`);
+            }
+            return; // Skip food scattering
+        }
+    }
 
     // ADD THIS CODE: Check if magic mushroom was clicked
     if (magicMushroom && !mushroomMode) {
@@ -16790,7 +16950,29 @@ if (gameboy) {
     scatterFood(scaledX, scaledY, 3);
     debugLog(`Food scattered at web coordinates (${scaledX}, ${scaledY})`);
 });
-            
+
+// Enhanced: Mouse move handler for bird hover detection
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    mouseX = (e.clientX - rect.left) * scaleX;
+    mouseY = (e.clientY - rect.top) * scaleY;
+
+    // Find bird under cursor
+    hoveredBird = null;
+    for (const bird of birds) {
+        const dist = Math.sqrt(
+            Math.pow(mouseX - bird.x, 2) +
+            Math.pow(mouseY - bird.y, 2)
+        );
+        if (dist < 25) { // 25px hover radius
+            hoveredBird = bird;
+            break;
+        }
+    }
+});
+
 // Touch events for mobile
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault(); // Prevent scrolling
