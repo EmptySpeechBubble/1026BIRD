@@ -1650,6 +1650,17 @@ let rainsCompleted = 0; // Track number of completed rain events (for pond forma
     BATHING: 25000,     // Unchanged
     FLYING: 10000,       // Reduced from 15000
     HOPPING: 90000,     // Increased from 60000 - more ground chill time (1.5 minutes)
+    // Missing states - consolidated for consistency
+    HUNTING: 7000,      // 7 seconds to hunt target
+    COLLECTING: 7000,   // 7 seconds to collect twig
+    BUILDING: 10000,    // 10 seconds to build nest
+    BUILDING_BIRDHOUSE: 10000, // 10 seconds to build birdhouse
+    FEEDING: 8000,      // 8 seconds foraging on ground
+    PECKING: 5000,      // 5 seconds pecking behavior
+    MOBBING: 12000,     // 12 seconds harassing predator
+    TERRITORIAL_DISPLAY: 3000, // 3 seconds dominance display
+    FLEEING_GROUND: 250, // 0.25 seconds ground escape delay
+    SENTINEL: 15000,    // 15 seconds standing guard
     // Phase 1 - Essential Realism Durations
     PREENING: 15000,    // 15 seconds - grooming session
     DRINKING: 3000,     // 3 seconds - quick drink
@@ -8624,6 +8635,18 @@ if (this.pathIndex >= this.path.length) {
                                     });
                                     break;
                                 }
+                            }
+                        }
+
+                        // CRITICAL FIX: Exit sentinel duty after timeout or if hungry
+                        if (this.stateTimer > BIRD_STATE_DURATION.SENTINEL || this.hunger > HUNGER_CRITICAL_THRESHOLD) {
+                            if (this.hunger > HUNGER_CRITICAL_THRESHOLD) {
+                                // Must find food
+                                this.findFoodSource();
+                            } else {
+                                // Resume normal ground activity
+                                this.state = BIRD_STATES.PECKING;
+                                this.stateTimer = 0;
                             }
                         }
                         break;
