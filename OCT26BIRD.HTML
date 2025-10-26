@@ -1649,7 +1649,12 @@ let rainsCompleted = 0; // Track number of completed rain events (for pond forma
     RESTING: 75000,     // Increased from 60000
     BATHING: 25000,     // Unchanged
     FLYING: 10000,       // Reduced from 15000
-    HOPPING: 90000      // Increased from 60000 - more ground chill time (1.5 minutes)
+    HOPPING: 90000,     // Increased from 60000 - more ground chill time (1.5 minutes)
+    // Phase 1 - Essential Realism Durations
+    PREENING: 15000,    // 15 seconds - grooming session
+    DRINKING: 3000,     // 3 seconds - quick drink
+    ALARM: 800,         // 0.8 seconds - brief freeze before action
+    NEST_SITTING: 180000 // 3 minutes - sitting on nest
         };
         
         // Morning food spawn rates
@@ -1705,7 +1710,12 @@ let rainsCompleted = 0; // Track number of completed rain events (for pond forma
             MOBBING: 'mobbing', // Harassing predators
             PECKING: 'pecking', // Ground pecking for food
             TERRITORIAL_DISPLAY: 'territorial_display', // Showing dominance
-            FLEEING_GROUND: 'fleeing_ground' // Escaping from ground (slower)
+            FLEEING_GROUND: 'fleeing_ground', // Escaping from ground (slower)
+            // Phase 1 - Essential Realism States
+            PREENING: 'preening', // Grooming feathers
+            DRINKING: 'drinking', // Drinking water (separate from bathing)
+            ALARM: 'alarm', // Freeze response before fleeing
+            NEST_SITTING: 'nest_sitting' // Incubating/warming nest
         };
         
         const BIRDHOUSE_MATERIALS_NEEDED = 5;
@@ -6420,20 +6430,13 @@ if (timeOfDay < 1 && Math.random() < 0.001) {
                 // Record danger
                 this.recordDanger(threatX, threatY, 'unknown');
 
-                // Ground birds flee slower - use FLEEING_GROUND state
-                if (this.isOnGround || this.y > canvas.height * GROUND_HEIGHT_RATIO - 20) {
-                    this.state = BIRD_STATES.FLEEING_GROUND;
-                    this.stateTimer = 0;
-                    this.velocity = { x: 0, y: 0 }; // Will launch after delay
-                } else {
-                    // Air birds flee immediately
-                    this.state = BIRD_STATES.FLEEING;
-                    this.stateTimer = 0;
+                // REALISTIC: Birds freeze briefly before fleeing (ALARM state)
+                this.state = BIRD_STATES.ALARM;
+                this.stateTimer = 0;
 
-                    // Apply immediate force away from threat
-                    this.velocity.x = dir.x * this.baseSpeed * 2;
-                    this.velocity.y = dir.y * this.baseSpeed * 1.5 - 1; // Upward bias
-                }
+                // Store threat info for ALARM state to use
+                this.threatX = threatX;
+                this.threatY = threatY;
 
                 // Set direction faced
                 this.direction = dx > 0 ? 1 : -1;
@@ -6441,7 +6444,7 @@ if (timeOfDay < 1 && Math.random() < 0.001) {
                 // Alert chirp
                 this.chirp(CHIRP_TYPES.ALERT, 1.0);
 
-                debugLog(`Bird fleeing from threat at (${threatX}, ${threatY})`);
+                debugLog(`Bird alarmed by threat at (${threatX}, ${threatY})`);
             }
 
             // === NEW BEHAVIOR METHODS ===
@@ -7541,8 +7544,12 @@ if ((isRaining || timeOfDay >= 1) && Math.random() < 0.4) { // 40% chance to see
                                 if (babyBirds.length > 0 && Math.random() < 0.7) { // Increased from 0.5
                                     // Look for babies to feed
                                     this.findBabyBirds();
+                                } else if (Math.random() < 0.5) {
+                                    // REALISTIC: Sit on nest to keep it warm (incubation behavior)
+                                    this.state = BIRD_STATES.NEST_SITTING;
+                                    this.stateTimer = 0;
                                 } else {
-                                    // Rest at nest - V26: increased likelihood
+                                    // Rest at nest
                                     this.state = BIRD_STATES.RESTING;
                                     this.stateTimer = 0;
                                 }
@@ -7746,25 +7753,36 @@ if ((isRaining || timeOfDay >= 1) && Math.random() < 0.4) { // 40% chance to see
                         
                         // End feeding state after a while
                         if (this.stateTimer > 8000 || this.hunger < 100) {
-                            // V26: More likely to perch after feeding
-                            if (this.hunger > 200 && Math.random() < 0.4) { // Reduced from 0.5
+                            // REALISTIC: Birds often drink after eating dry food
+                            if ((puddles.length > 0 || ponds.length > 0) && Math.random() < 0.7) {
+                                this.state = BIRD_STATES.DRINKING;
+                                this.stateTimer = 0;
+                            }
+                            // Or preen to clean beak
+                            else if (Math.random() < 0.4) {
+                                this.state = BIRD_STATES.PREENING;
+                                this.stateTimer = 0;
+                                this.isOnGround = Math.abs(this.y - (canvas.height * GROUND_HEIGHT_RATIO)) < 30;
+                            }
+                            // Continue if still hungry
+                            else if (this.hunger > 200 && Math.random() < 0.4) {
                                 // Still hungry - keep searching
                                 this.findFoodSource();
                             } else if (!this.isWild && !this.myNest && twigs.length > 0 && Math.random() < 0.1) {
                                 // Maybe collect nest materials
                                 this.findTwigs();
-                            } else if (!this.isWild && this.myNest && this.myNest.isComplete && babyBirds.length > 0 && Math.random() < 0.4) { // Reduced from 0.5
+                            } else if (!this.isWild && this.myNest && this.myNest.isComplete && babyBirds.length > 0 && Math.random() < 0.4) {
                                 // Look for babies to feed
                                 this.findBabyBirds();
                             } else {
-                                // V26: Increased likelihood to perch rather than fly after feeding
-                                if (Math.random() < 0.6) { // Added 60% chance to perch
+                                // Increased likelihood to perch rather than fly after feeding
+                                if (Math.random() < 0.6) {
                                     this.findPerch();
                                 } else {
                                     // Return to flying
                                     this.state = BIRD_STATES.FLYING;
                                     this.stateTimer = 0;
-                                    
+
                                     // Fly upward
                                     this.generatePath(
                                         this.x + (Math.random() - 0.5) * 50,
@@ -7935,19 +7953,10 @@ if ((isRaining || timeOfDay >= 1) && Math.random() < 0.4) { // 40% chance to see
                             
                             // End bathing after a while
                             if (this.stateTimer > BIRD_STATE_DURATION.BATHING) {
-                                // V26: More likely to perch after bathing to dry off
-                                if (Math.random() < 0.8) { // Increased from 0.7
-                                    this.findPerch();
-                                } else {
-                                    this.state = BIRD_STATES.FLYING;
-                                    this.stateTimer = 0;
-                                    
-                                    // Fly upward
-                                    this.generatePath(
-                                        this.x + (Math.random() - 0.5) * 50,
-                                        this.y - 50 - Math.random() * 50
-                                    );
-                                }
+                                // CRITICAL: Birds ALWAYS preen after bathing (realistic behavior)
+                                this.state = BIRD_STATES.PREENING;
+                                this.stateTimer = 0;
+                                this.isOnGround = Math.abs(this.y - (canvas.height * GROUND_HEIGHT_RATIO)) < 30;
                             }
                         } else {
                             // Move toward puddle
@@ -7975,6 +7984,202 @@ if ((isRaining || timeOfDay >= 1) && Math.random() < 0.4) { // 40% chance to see
                                     Math.random() * canvas.width,
                                     100 + Math.random() * (canvas.height * 0.3)
                                 );
+                            }
+                        }
+                        break;
+
+                    case BIRD_STATES.PREENING:
+                        // Grooming feathers after bathing, eating, or while idle
+                        this.velocity.x *= 0.9; // Slow movement while preening
+                        this.velocity.y *= 0.9;
+
+                        // Slight head/body movements simulating grooming
+                        if (Math.random() < 0.15) {
+                            this.applyForce({
+                                x: (Math.random() - 0.5) * 0.008,
+                                y: (Math.random() - 0.5) * 0.004
+                            });
+                        }
+
+                        // Visual: Toggle pecking to simulate beak grooming motion
+                        if (Math.random() < 0.3) {
+                            this.pecking = !this.pecking;
+                        }
+
+                        // End preening after duration
+                        if (this.stateTimer > BIRD_STATE_DURATION.PREENING) {
+                            // After preening, birds usually rest or resume normal activity
+                            if (this.hunger > HUNGER_CRITICAL_THRESHOLD - 100) {
+                                this.findFoodSource();
+                            } else if (this.isOnGround && Math.random() < 0.4) {
+                                // Continue ground activities
+                                this.state = BIRD_STATES.HOPPING;
+                                this.stateTimer = 0;
+                            } else if (Math.random() < 0.6) {
+                                this.findPerch();
+                            } else {
+                                this.state = BIRD_STATES.RESTING;
+                                this.stateTimer = 0;
+                            }
+                        }
+                        break;
+
+                    case BIRD_STATES.DRINKING:
+                        // Quick drinking behavior at water sources
+                        this.velocity.x *= 0.85;
+                        this.velocity.y *= 0.85;
+
+                        // Find nearest water source (puddle or pond)
+                        let nearestWater = null;
+                        let waterDist = Infinity;
+
+                        // Check puddles
+                        for (const puddle of puddles) {
+                            const dist = distance(this.x, this.y, puddle.x, puddle.y);
+                            if (dist < waterDist) {
+                                waterDist = dist;
+                                nearestWater = { x: puddle.x, y: puddle.y, type: 'puddle' };
+                            }
+                        }
+
+                        // Check ponds
+                        for (const pond of ponds) {
+                            const dist = distance(this.x, this.y, pond.x, pond.y);
+                            if (dist < waterDist) {
+                                waterDist = dist;
+                                nearestWater = { x: pond.x, y: pond.y - pond.height / 2, type: 'pond' };
+                            }
+                        }
+
+                        if (!nearestWater || waterDist > 100) {
+                            // No water nearby, end drinking
+                            this.state = BIRD_STATES.FLYING;
+                            this.stateTimer = 0;
+                            break;
+                        }
+
+                        // At water - drinking
+                        if (waterDist < 15) {
+                            // Dipping head animation (use pecking)
+                            if (Math.random() < 0.4) {
+                                this.pecking = true;
+                            } else {
+                                this.pecking = false;
+                            }
+
+                            // Add small ripples if drinking from puddle
+                            if (nearestWater.type === 'puddle') {
+                                const puddle = puddles.find(p => p.x === nearestWater.x && p.y === nearestWater.y);
+                                if (puddle && Math.random() < 0.1) {
+                                    puddle.ripples.push({
+                                        size: 1,
+                                        maxSize: 3 + Math.random() * 3,
+                                        speed: 0.05 + Math.random() * 0.05
+                                    });
+                                }
+                            }
+
+                            // End drinking after short duration
+                            if (this.stateTimer > BIRD_STATE_DURATION.DRINKING) {
+                                // After drinking, often preen
+                                if (Math.random() < 0.5) {
+                                    this.state = BIRD_STATES.PREENING;
+                                    this.stateTimer = 0;
+                                } else if (this.isOnGround) {
+                                    this.state = BIRD_STATES.HOPPING;
+                                    this.stateTimer = 0;
+                                } else {
+                                    this.state = BIRD_STATES.FLYING;
+                                    this.stateTimer = 0;
+                                }
+                            }
+                        } else {
+                            // Move toward water
+                            const dx = nearestWater.x - this.x;
+                            const dy = nearestWater.y - this.y;
+                            const dir = normalize(dx, dy);
+
+                            this.applyForce({
+                                x: dir.x * 0.015,
+                                y: dir.y * 0.01
+                            });
+
+                            if (Math.abs(dx) > 2) {
+                                this.direction = dx > 0 ? 1 : -1;
+                            }
+                        }
+                        break;
+
+                    case BIRD_STATES.ALARM:
+                        // Freeze response before fleeing - complete stillness
+                        this.velocity.x = 0;
+                        this.velocity.y = 0;
+                        this.pecking = false;
+
+                        // After brief freeze, transition to appropriate escape
+                        if (this.stateTimer > BIRD_STATE_DURATION.ALARM) {
+                            // Check if there are nearby flockmates
+                            const flockmates = this.getFlockmates();
+                            const nearbyFlockmates = flockmates.filter(b =>
+                                distance(this.x, this.y, b.x, b.y) < 150
+                            );
+
+                            // If in group, might mob instead of flee
+                            if (nearbyFlockmates.length >= 2 && Math.random() < 0.4) {
+                                this.state = BIRD_STATES.MOBBING;
+                                this.stateTimer = 0;
+                            } else {
+                                // Flee based on current position
+                                if (this.isOnGround) {
+                                    this.state = BIRD_STATES.FLEEING_GROUND;
+                                } else {
+                                    this.state = BIRD_STATES.FLEEING;
+                                }
+                                this.stateTimer = 0;
+                            }
+                        }
+                        break;
+
+                    case BIRD_STATES.NEST_SITTING:
+                        // Sitting on nest to warm eggs/babies
+                        if (!this.myNest || !nests.includes(this.myNest)) {
+                            // No nest, can't sit
+                            this.state = BIRD_STATES.FLYING;
+                            this.stateTimer = 0;
+                            break;
+                        }
+
+                        // Stay at nest position
+                        this.x = this.myNest.x;
+                        this.y = this.myNest.y;
+                        this.velocity = { x: 0, y: 0 };
+
+                        // Occasional small adjustments
+                        if (Math.random() < 0.05) {
+                            this.applyForce({
+                                x: (Math.random() - 0.5) * 0.002,
+                                y: (Math.random() - 0.5) * 0.001
+                            });
+                        }
+
+                        // Occasional chirping while sitting
+                        if (Math.random() < 0.01) {
+                            this.chirp(CHIRP_TYPES.SOCIAL, 0.3);
+                        }
+
+                        // Leave nest if hungry or after duration
+                        if (this.hunger > HUNGER_CRITICAL_THRESHOLD || this.stateTimer > BIRD_STATE_DURATION.NEST_SITTING) {
+                            if (this.hunger > HUNGER_CRITICAL_THRESHOLD) {
+                                // Must find food
+                                this.findFoodSource();
+                            } else {
+                                // Check on babies or rest
+                                if (babyBirds.length > 0 && Math.random() < 0.6) {
+                                    this.findBabyBirds();
+                                } else {
+                                    this.state = BIRD_STATES.RESTING;
+                                    this.stateTimer = 0;
+                                }
                             }
                         }
                         break;
