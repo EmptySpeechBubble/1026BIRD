@@ -1406,6 +1406,14 @@ let ants = [];
         let isTabVisible = true; // Add this line here
         let totalBabiesBorn = 0; // Track total babies born counter
 
+        // Mouse tracking for bird hover/click interactions
+        let mouseX = 0;
+        let mouseY = 0;
+        let hoveredBird = null;
+        let lockedBird = null;
+        let cameraOffsetX = 0;
+        let cameraOffsetY = 0;
+
         // History tracking - maximum counts ever seen
         let maxTreesEver = 0;
         let maxBirdsEver = 0;
@@ -16806,15 +16814,7 @@ if (toggleWindChimeBtn) {
           // Triple click detection variables - ADD THIS CODE HERE
 let clickCount = 0;
 let lastClickTime = 0;
-const clickTimeout = 500;
-
-// Mouse tracking for bird hover/click interactions
-let mouseX = 0;
-let mouseY = 0;
-let hoveredBird = null;
-let lockedBird = null;
-let cameraOffsetX = 0;
-let cameraOffsetY = 0; // ms between clicks to count as multi-click
+const clickTimeout = 500; // ms between clicks to count as multi-click
 
 // Canvas click for food and triple-click detection
 canvas.addEventListener('click', (e) => {
